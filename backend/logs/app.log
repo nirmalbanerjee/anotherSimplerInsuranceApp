@@ -1,0 +1,50 @@
+2025-11-19 19:32:24,062 INFO insurance START POST /register
+2025-11-19 19:32:24,066 INFO insurance END POST /register status=400
+2025-11-19 19:32:24,095 INFO insurance START POST /register
+2025-11-19 19:32:24,096 INFO insurance END POST /register status=400
+2025-11-19 19:32:24,097 INFO insurance START POST /login-json
+2025-11-19 19:32:24,103 INFO insurance END POST /login-json status=200
+2025-11-19 19:32:24,104 INFO insurance START POST /policies
+2025-11-19 19:32:24,107 INFO insurance END POST /policies status=200
+2025-11-19 19:32:24,108 INFO insurance START GET /policies
+2025-11-19 19:32:24,110 INFO insurance END GET /policies status=200
+2025-11-19 19:32:24,111 INFO insurance START DELETE /policies/2
+2025-11-19 19:32:24,112 INFO insurance END DELETE /policies/2 status=403
+2025-11-19 19:32:24,113 INFO insurance START POST /register
+2025-11-19 19:32:24,114 INFO insurance END POST /register status=400
+2025-11-19 19:32:24,115 INFO insurance START POST /login-json
+2025-11-19 19:32:24,121 INFO insurance END POST /login-json status=200
+2025-11-19 19:32:24,122 INFO insurance START POST /policies
+2025-11-19 19:32:24,124 INFO insurance END POST /policies status=200
+2025-11-19 19:32:24,124 INFO insurance START PATCH /policies/3
+2025-11-19 19:32:24,127 INFO insurance END PATCH /policies/3 status=200
+2025-11-19 19:32:24,128 INFO insurance START DELETE /policies/3
+2025-11-19 19:32:24,130 INFO insurance END DELETE /policies/3 status=200
+2025-11-19 19:32:24,131 INFO insurance START GET /policies
+2025-11-19 19:32:24,133 INFO insurance END GET /policies status=200
+2025-11-19 19:32:58,436 INFO insurance START POST /register
+2025-11-19 19:32:58,444 INFO insurance END POST /register status=200
+2025-11-19 19:32:58,445 INFO insurance START POST /login-json
+2025-11-19 19:32:58,451 INFO insurance END POST /login-json status=200
+2025-11-19 19:32:58,452 INFO insurance START POST /register
+2025-11-19 19:32:58,458 INFO insurance END POST /register status=200
+2025-11-19 19:32:58,459 INFO insurance START POST /login-json
+2025-11-19 19:32:58,465 INFO insurance END POST /login-json status=200
+2025-11-19 19:32:58,466 INFO insurance START POST /policies
+2025-11-19 19:32:58,468 INFO insurance END POST /policies status=200
+2025-11-19 19:32:58,469 INFO insurance START GET /policies
+2025-11-19 19:32:58,471 INFO insurance END GET /policies status=200
+2025-11-19 19:32:58,472 INFO insurance START DELETE /policies/1
+2025-11-19 19:32:58,473 INFO insurance END DELETE /policies/1 status=403
+2025-11-19 19:32:58,474 INFO insurance START POST /register
+2025-11-19 19:32:58,480 INFO insurance END POST /register status=200
+2025-11-19 19:32:58,481 INFO insurance START POST /login-json
+2025-11-19 19:32:58,513 INFO insurance END POST /login-json status=200
+2025-11-19 19:32:58,537 INFO insurance START POST /policies
+2025-11-19 19:32:58,540 INFO insurance END POST /policies status=200
+2025-11-19 19:32:58,541 INFO insurance START PATCH /policies/2
+2025-11-19 19:32:58,552 INFO insurance END PATCH /policies/2 status=200
+2025-11-19 19:32:58,554 INFO insurance START DELETE /policies/2
+2025-11-19 19:32:58,556 INFO insurance END DELETE /policies/2 status=200
+2025-11-19 19:32:58,557 INFO insurance START GET /policies
+2025-11-19 19:32:58,558 INFO insurance END GET /policies status=200

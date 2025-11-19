@@ -6,6 +6,8 @@ __pycache__/
 .env
 .venv/
 backend/app.db
+backend/test.db
+db/app.db
 
 # Node / React
 frontend/node_modules/

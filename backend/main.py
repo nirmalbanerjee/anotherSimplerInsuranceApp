@@ -8,23 +8,26 @@ from pydantic import BaseModel
 from typing import List, Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-import sqlite3
+from sqlalchemy.orm import Session
 import datetime
+import os, sys, logging
+from logging.handlers import RotatingFileHandler
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  # add project root to path
+from db.database import engine, Base, get_db  # noqa: E402
+from db.models import UserORM, PolicyORM  # noqa: E402
 
 # --- Config ---
 SECRET_KEY = "supersecretkey"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-import os
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "app.db")
+# DB config now in db/database.py
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # --- Models ---
 class User(BaseModel):
     username: str
     password: str
-    role: str  # 'admin' or 'user'
+    role: str
 
 class InsurancePolicy(BaseModel):
     id: Optional[int]
@@ -49,29 +52,10 @@ class LoginBody(BaseModel):
     username: str
     password: str
 
-# --- DB Setup ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS policies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        details TEXT,
-        owner TEXT NOT NULL
-    )
-    """)
-    conn.commit()
-    conn.close()
+# ORM models moved to db/models.py
 
-init_db()
+# --- DB Setup ---
+Base.metadata.create_all(bind=engine)
 
 # --- Auth ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
@@ -85,6 +69,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Logging ---
+LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
+os.makedirs(LOG_DIR, exist_ok=True)
+log_path = os.path.join(LOG_DIR, "app.log")
+handler = RotatingFileHandler(log_path, maxBytes=500_000, backupCount=3)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+handler.setFormatter(formatter)
+logger = logging.getLogger("insurance")
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    logger.info(f"START {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"END {request.method} {request.url.path} status={response.status_code}")
+    return response
+
 def verify_password(plain, hashed):
     return pwd_context.verify(plain, hashed)
 
@@ -97,23 +99,21 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_user(username):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT username, password, role FROM users WHERE username=?", (username,))
-    row = c.fetchone()
-    conn.close()
+# get_db imported from db/database.py
+
+def get_user(username, db: Session):
+    row = db.query(UserORM).filter(UserORM.username==username).first()
     if row:
-        return {"username": row[0], "password": row[1], "role": row[2]}
+        return {"username": row.username, "password": row.password, "role": row.role}
     return None
 
-def authenticate_user(username, password):
-    user = get_user(username)
+def authenticate_user(username, password, db: Session):
+    user = get_user(username, db)
     if not user or not verify_password(password, user["password"]):
         return None
     return user
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -126,7 +126,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    user = get_user(username)
+    user = get_user(username, db)
     if user is None:
         raise credentials_exception
     return user
@@ -138,90 +138,81 @@ async def get_current_admin(user: dict = Depends(get_current_user)):
 
 # --- Routes ---
 @app.post("/register", response_model=Token)
-def register(user: User):
-    if get_user(user.username):
+def register(user: User, db: Session = Depends(get_db)):
+    if get_user(user.username, db):
         raise HTTPException(status_code=400, detail="Username already exists")
     hashed = get_password_hash(user.password)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (user.username, hashed, user.role))
-    conn.commit()
-    conn.close()
+    db.add(UserORM(username=user.username, password=hashed, role=user.role))
+    db.commit()
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/login-json", response_model=Token)
-def login_json(body: LoginBody):
-    user = authenticate_user(body.username, body.password)
+def login_json(body: LoginBody, db: Session = Depends(get_db)):
+    user = authenticate_user(body.username, body.password, db)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/policies", response_model=List[InsurancePolicy])
-def get_policies(user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    if user["role"] == "admin":
-        c.execute("SELECT id, name, details, owner FROM policies")
-    else:
-        c.execute("SELECT id, name, details, owner FROM policies WHERE owner=?", (user["username"],))
-    rows = c.fetchall()
-    conn.close()
-    return [InsurancePolicy(id=row[0], name=row[1], details=row[2], owner=row[3]) for row in rows]
+def get_policies(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(PolicyORM)
+    if user["role"] != "admin":
+        q = q.filter(PolicyORM.owner==user["username"])
+    rows = q.all()
+    return [InsurancePolicy(id=r.id, name=r.name, details=r.details or "", owner=r.owner) for r in rows]
 
 @app.post("/policies", response_model=InsurancePolicy)
-def create_policy(policy: InsurancePolicyCreate, user: dict = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO policies (name, details, owner) VALUES (?, ?, ?)", (policy.name, policy.details, user["username"]))
-    policy_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return InsurancePolicy(id=policy_id, name=policy.name, details=policy.details, owner=user["username"])
+def create_policy(policy: InsurancePolicyCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = PolicyORM(name=policy.name, details=policy.details, owner=user["username"])
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return InsurancePolicy(id=row.id, name=row.name, details=row.details or "", owner=row.owner)
 
 @app.put("/policies/{policy_id}", response_model=InsurancePolicy)
-def update_policy(policy_id: int, policy: InsurancePolicy, user: dict = Depends(get_current_admin)):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE policies SET name=?, details=?, owner=? WHERE id=?", (policy.name, policy.details, policy.owner, policy_id))
-    conn.commit()
-    conn.close()
-    return InsurancePolicy(id=policy_id, name=policy.name, details=policy.details, owner=policy.owner)
+def update_policy(policy_id: int, policy: InsurancePolicy, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    row.name = policy.name
+    row.details = policy.details
+    row.owner = policy.owner
+    db.commit()
+    db.refresh(row)
+    return InsurancePolicy(id=row.id, name=row.name, details=row.details or "", owner=row.owner)
 
 @app.patch("/policies/{policy_id}", response_model=InsurancePolicy)
-def patch_policy(policy_id: int, patch: InsurancePolicyUpdate, user: dict = Depends(get_current_admin)):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, name, details, owner FROM policies WHERE id=?", (policy_id,))
-    row = c.fetchone()
+def patch_policy(policy_id: int, patch: InsurancePolicyUpdate, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
     if not row:
-        conn.close()
         raise HTTPException(status_code=404, detail="Policy not found")
-    current = {"id": row[0], "name": row[1], "details": row[2], "owner": row[3]}
-    new_name = patch.name if patch.name is not None else current["name"]
-    new_details = patch.details if patch.details is not None else current["details"]
-    new_owner = patch.owner if patch.owner is not None else current["owner"]
-    c.execute("UPDATE policies SET name=?, details=?, owner=? WHERE id=?", (new_name, new_details, new_owner, policy_id))
-    conn.commit()
-    conn.close()
-    return InsurancePolicy(id=policy_id, name=new_name, details=new_details, owner=new_owner)
+    if patch.name is not None:
+        row.name = patch.name
+    if patch.details is not None:
+        row.details = patch.details
+    if patch.owner is not None:
+        row.owner = patch.owner
+    db.commit()
+    db.refresh(row)
+    return InsurancePolicy(id=row.id, name=row.name, details=row.details or "", owner=row.owner)
 
 @app.delete("/policies/{policy_id}")
-def delete_policy(policy_id: int, user: dict = Depends(get_current_admin)):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM policies WHERE id=?", (policy_id,))
-    conn.commit()
-    conn.close()
+def delete_policy(policy_id: int, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    db.delete(row)
+    db.commit()
     return {"detail": "Deleted"}
 
 # --- API Docs ---

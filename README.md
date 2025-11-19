@@ -132,3 +132,119 @@ Frontend:
 cd frontend
 npx serve .
 ```
+
+## Documentation Split
+Detailed guides:
+- Local development: `README.local.md`
+- AWS deployment: `README.aws.md`
+
+## Containerized Deployment (Docker Compose)
+Ports:
+- Frontend: 3000
+- Backend API: 8000
+- Postgres DB: 5432
+
+### Run Locally with Docker Compose (Ports: frontend 3023, backend 8000, db 5432)
+```bash
+docker compose build
+docker compose up -d
+# Frontend: http://localhost:3000
+# Backend Swagger: http://localhost:8000/docs
+```
+Stop:
+```bash
+docker compose down
+```
+
+### Environment Variables
+See `.env.example` and set `DB_URL`, `SECRET_KEY` as needed.
+
+### Migration Note
+Current SQLAlchemy models auto-create tables. For production, later add Alembic.
+
+## AWS Deployment Outline
+1. Create an RDS Postgres instance (security group allowing backend ECS task access on 5432).
+2. Store `DB_URL` & `SECRET_KEY` in AWS SSM Parameter Store or Secrets Manager.
+3. Build & push images:
+```bash
+docker build -t yourrepo/insurance-backend:latest -f backend/Dockerfile .
+docker build -t yourrepo/insurance-frontend:latest -f frontend/Dockerfile .
+docker push yourrepo/insurance-backend:latest
+docker push yourrepo/insurance-frontend:latest
+```
+4. Provision ECS (Fargate) services:
+   - Task 1: backend (port 8000) env points to RDS DB_URL.
+   - Task 2: frontend (port 3000) env REACT_APP_API_URL points to backend ALB URL.
+5. Use an Application Load Balancer:
+   - Listener 80/443 -> target group frontend.
+   - (Optional) Add path routing `/api/*` to backend target group.
+6. Configure auto scaling and CloudWatch logs.
+7. Restrict inbound to DB from backend security group only.
+
+## AWS EC2 + RDS Deployment Steps
+1. RDS Postgres: create instance (e.g., db.t3.micro) database name `insurance` user `postgres` password set.
+2. Security Groups:
+   - RDS SG: inbound 5432 from EC2 backend SG only.
+   - EC2 SG: inbound 22 (your IP), 80/443 (public), optionally 3000 if exposing frontend separately.
+3. EC2 Instance: Amazon Linux 2023 or Ubuntu 22.04.
+4. Install Docker:
+```bash
+sudo yum update -y
+sudo yum install -y docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+# relogin
+```
+5. Clone repo:
+```bash
+git clone https://github.com/YOURUSER/YOURREPO.git
+cd YOURREPO
+```
+6. Create `.env` with production values:
+```
+DB_URL=postgresql://postgres:<PASSWORD>@<RDS_ENDPOINT>:5432/insurance
+SECRET_KEY=<long_random_string>
+```
+7. Update `docker-compose.yml` if needed to remove db service (since using RDS) and backend DB_URL from env.
+8. Run containers:
+```bash
+docker compose up -d --build
+```
+9. Reverse Proxy (optional): install nginx to route domain to backend/frontend.
+10. HTTPS: use Certbot or ACM + ALB for TLS termination.
+
+## Running Tests
+Local:
+```bash
+cd backend
+pytest -q
+```
+Tests cover:
+- Registration & login success.
+- User policy CRUD limits (403 on delete).
+- Admin patch & delete flow.
+
+To add more tests create files under `backend/tests/` using `TestClient`.
+
+## Using Separate Production DB
+Remove `db` service from compose and set `DB_URL` to RDS Postgres. Ensure password secret stored in AWS SSM.
+
+## Cleanup
+Stop containers:
+```bash
+docker compose down
+```
+Remove volumes:
+```bash
+docker compose down -v
+```
+
+## Health Checks
+- Backend: GET /policies (requires auth) or root `/docs` (returns 200).
+- DB: Postgres native monitoring via RDS.
+
+## Production Hardening Suggestions
+- Use a stronger `SECRET_KEY`.
+- Enable HTTPS (ALB + ACM cert).
+- Add rate limiting / logging middleware.
+- Replace auto table creation with migrations.
