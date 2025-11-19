@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Insurance App</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --primary:#2855c6; --bg:#f5f7fb; --border:#d9dee6; --danger:#c62828; }
+    body { font-family: system-ui, Arial, sans-serif; background:var(--bg); margin:0; }
+    header { background:#1e3d8f; color:#fff; padding:.75rem 1rem; font-weight:600; }
+    .container { max-width:880px; margin:1.5rem auto; padding:0 1rem; }
+    .grid { display:grid; gap:1.25rem; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); }
+    .card { background:#fff; padding:1rem 1.25rem; border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 14px rgba(30,61,143,.08); }
+    h2,h3 { margin:.25rem 0 .75rem; font-weight:600; }
+    input, select { width:100%; padding:.6rem .65rem; margin:.4rem 0; border:1px solid var(--border); border-radius:6px; font-size:.9rem; }
+    button { padding:.55rem .9rem; border:none; border-radius:6px; background:var(--primary); color:#fff; font-size:.85rem; cursor:pointer; }
+    button.secondary { background:#5d6b82; }
+    button.danger { background:var(--danger); }
+    button.small { padding:.35rem .6rem; font-size:.7rem; margin-left:.35rem; }
+    ul { list-style:none; padding:0; margin:0; }
+    li { background:#fff; margin:.5rem 0; padding:.55rem .65rem; border:1px solid var(--border); border-radius:6px; display:flex; flex-direction:column; }
+    .row-top { display:flex; align-items:center; justify-content:space-between; }
+    .meta { font-size:.7rem; color:#5d6b82; margin-top:.15rem; }
+    .error { color:var(--danger); font-size:.8rem; margin:.5rem 0; }
+    footer { text-align:center; font-size:.7rem; color:#5d6b82; margin:2rem 0 1rem; }
+    .inline-edit { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.45rem; }
+    .inline-edit input { flex:1 1 120px; margin:.15rem 0; }
+  </style>
+</head>
+<body>
+  <header>Simple Insurance Portal</header>
+  <div id="root" class="container"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script>
+    const API = 'http://localhost:8000';
+    function decodeRole(token){ try { return JSON.parse(atob(token.split('.')[1])).role; } catch(e){ return ''; } }
+
+    function App(){
+      const [token,setToken] = React.useState('');
+      const [role,setRole] = React.useState('');
+      const [username,setUsername] = React.useState('');
+      const [policies,setPolicies] = React.useState([]);
+      const [policyForm,setPolicyForm] = React.useState({ name:'', details:'' });
+      const [authForm,setAuthForm] = React.useState({ username:'', password:'', role:'user' });
+      const [isLogin,setIsLogin] = React.useState(true);
+      const [error,setError] = React.useState('');
+      const [editing,setEditing] = React.useState({}); // policyId -> {name,details,owner}
+
+      React.useEffect(()=>{ if(token) fetchPolicies(); },[token]);
+
+      function handleAuth(e){
+        e.preventDefault(); setError('');
+        const endpoint = isLogin ? '/login-json' : '/register';
+        const body = isLogin ? { username:authForm.username, password:authForm.password } : authForm;
+        fetch(API + endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+          .then(async r=>{ const data = await r.json(); if(!r.ok) throw new Error(data.detail||'Auth failed'); return data; })
+          .then(d=>{ setToken(d.access_token); setUsername(authForm.username); setRole(decodeRole(d.access_token)); })
+          .catch(err=> setError(err.message));
+      }
+
+      function fetchPolicies(){
+        fetch(API + '/policies', { headers:{ Authorization:'Bearer ' + token }})
+          .then(r=>r.json())
+          .then(setPolicies);
+      }
+
+      function createPolicy(e){
+        e.preventDefault();
+        fetch(API + '/policies', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + token }, body: JSON.stringify(policyForm) })
+          .then(r=>r.json())
+          .then(p=>{ setPolicies([...policies,p]); setPolicyForm({ name:'', details:'' }); });
+      }
+
+      function startEdit(p){ setEditing({ ...editing, [p.id]: { name:p.name, details:p.details, owner:p.owner } }); }
+      function cancelEdit(id){ const copy={...editing}; delete copy[id]; setEditing(copy); }
+      function saveEdit(id){
+        const patch = editing[id];
+        fetch(API + '/policies/' + id, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + token }, body: JSON.stringify(patch) })
+          .then(r=>r.json())
+          .then(updated=>{ setPolicies(policies.map(p=> p.id===id? updated: p)); cancelEdit(id); });
+      }
+
+      function deletePolicy(id){
+        fetch(API + '/policies/' + id, { method:'DELETE', headers:{ Authorization:'Bearer ' + token } })
+          .then(()=> setPolicies(policies.filter(p=>p.id!==id)));
+      }
+
+      function logout(){ setToken(''); setRole(''); setUsername(''); }
+
+      if(!token){
+        return React.createElement('div', { className:'grid' }, [
+          React.createElement('div',{ className:'card', key:'auth' }, [
+            React.createElement('h2',{}, isLogin? 'Login' : 'Register'),
+            error && React.createElement('div',{ className:'error' }, error),
+            React.createElement('form',{ onSubmit:handleAuth }, [
+              React.createElement('input',{ placeholder:'Username', value:authForm.username, onChange:e=>setAuthForm({ ...authForm, username:e.target.value }), required:true }),
+              React.createElement('input',{ type:'password', placeholder:'Password', value:authForm.password, onChange:e=>setAuthForm({ ...authForm, password:e.target.value }), required:true }),
+              !isLogin && React.createElement('select',{ value:authForm.role, onChange:e=>setAuthForm({ ...authForm, role:e.target.value }) }, [
+                React.createElement('option',{ value:'user' },'User'),
+                React.createElement('option',{ value:'admin' },'Admin')
+              ]),
+              React.createElement('button',{ type:'submit' }, isLogin? 'Login' : 'Register'),
+              React.createElement('button',{ type:'button', className:'secondary', onClick:()=>setIsLogin(!isLogin) }, isLogin? 'Switch to Register':'Switch to Login')
+            ])
+          ])
+        ]);
+      }
+
+      return React.createElement('div',{}, [
+        React.createElement('div',{ className:'grid', key:'main' }, [
+          React.createElement('div',{ className:'card', key:'profile' }, [
+            React.createElement('h3',{}, 'Welcome ' + username + ' (' + role + ')'),
+            React.createElement('button',{ onClick:logout, className:'secondary' },'Logout')
+          ]),
+          React.createElement('div',{ className:'card', key:'create' }, [
+            React.createElement('h3',{}, 'New Policy'),
+            React.createElement('form',{ onSubmit:createPolicy }, [
+              React.createElement('input',{ placeholder:'Policy Name', value:policyForm.name, onChange:e=>setPolicyForm({ ...policyForm, name:e.target.value }), required:true }),
+              React.createElement('input',{ placeholder:'Details', value:policyForm.details, onChange:e=>setPolicyForm({ ...policyForm, details:e.target.value }), required:true }),
+              React.createElement('button',{ type:'submit' },'Add')
+            ])
+          ]),
+          React.createElement('div',{ className:'card', key:'list' }, [
+            React.createElement('h3',{}, 'Policies'),
+            React.createElement('ul',{}, policies.map(p=>{
+              const edit = editing[p.id];
+              return React.createElement('li',{ key:p.id }, [
+                React.createElement('div',{ className:'row-top' }, [
+                  React.createElement('strong',{}, p.name),
+                  role==='admin' && !edit && React.createElement('div',{}, [
+                    React.createElement('button',{ className:'small', onClick:()=>startEdit(p) },'Edit'),
+                    React.createElement('button',{ className:'small danger', onClick:()=>deletePolicy(p.id) },'Delete')
+                  ])
+                ]),
+                React.createElement('div',{ className:'meta' }, 'Owner: ' + p.owner),
+                React.createElement('div',{}, p.details),
+                edit && React.createElement('div',{ className:'inline-edit' }, [
+                  React.createElement('input',{ value:edit.name, onChange:e=>setEditing({ ...editing, [p.id]: { ...edit, name:e.target.value } }) }),
+                  React.createElement('input',{ value:edit.details, onChange:e=>setEditing({ ...editing, [p.id]: { ...edit, details:e.target.value } }) }),
+                  React.createElement('input',{ value:edit.owner, onChange:e=>setEditing({ ...editing, [p.id]: { ...edit, owner:e.target.value } }) }),
+                  React.createElement('button',{ className:'small', onClick:()=>saveEdit(p.id) },'Save'),
+                  React.createElement('button',{ className:'small secondary', onClick:()=>cancelEdit(p.id) },'Cancel')
+                ])
+              ]);
+            }))
+          ])
+        ]),
+        React.createElement('footer',{ key:'ft' },'Simple Insurance Portal')
+      ]);
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
