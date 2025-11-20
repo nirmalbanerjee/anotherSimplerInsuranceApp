@@ -10,7 +10,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 import datetime
-import os, sys, logging
+import os, sys, logging, json, uuid, time
 from logging.handlers import RotatingFileHandler
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  # add project root to path
 from db.database import engine, Base, get_db  # noqa: E402
@@ -74,7 +74,40 @@ LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
 os.makedirs(LOG_DIR, exist_ok=True)
 log_path = os.path.join(LOG_DIR, "app.log")
 handler = RotatingFileHandler(log_path, maxBytes=500_000, backupCount=3)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        base = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if hasattr(record, 'request_id'):
+            base['request_id'] = record.request_id
+        if hasattr(record, 'path'):
+            base['path'] = record.path
+        if hasattr(record, 'method'):
+            base['method'] = record.method
+        if hasattr(record, 'status_code'):
+            base['status_code'] = record.status_code
+        if hasattr(record, 'status_text'):
+            base['status_text'] = record.status_text
+        if hasattr(record, 'duration_ms'):
+            base['duration_ms'] = record.duration_ms
+        if hasattr(record, 'username'):
+            base['username'] = record.username
+        if hasattr(record, 'role'):
+            base['role'] = record.role
+        if hasattr(record, 'client_ip'):
+            base['client_ip'] = record.client_ip
+        if hasattr(record, 'user_agent'):
+            base['user_agent'] = record.user_agent
+        if hasattr(record, 'request_size'):
+            base['request_size'] = record.request_size
+        if hasattr(record, 'body_excerpt'):
+            base['body_excerpt'] = record.body_excerpt
+        return json.dumps(base)
+formatter = JsonFormatter()
 handler.setFormatter(formatter)
 logger = logging.getLogger("insurance")
 logger.setLevel(logging.INFO)
@@ -82,9 +115,64 @@ logger.addHandler(handler)
 
 @app.middleware("http")
 async def log_requests(request, call_next):
-    logger.info(f"START {request.method} {request.url.path}")
+    request_id = str(uuid.uuid4())
+    start = time.time()
+    rec_start = logging.LogRecord(name=logger.name, level=logging.INFO, pathname=__file__, lineno=0, msg="request.start", args=(), exc_info=None)
+    rec_start.request_id = request_id
+    rec_start.path = request.url.path
+    rec_start.method = request.method
+    # metadata
+    rec_start.client_ip = request.client.host if request.client else None
+    rec_start.user_agent = request.headers.get('user-agent')
+    # Attempt body read (non-streaming small bodies)
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        body_bytes = b''
+    rec_start.request_size = len(body_bytes)
+    # mask password fields if present
+    body_text = body_bytes.decode('utf-8', errors='ignore')
+    if 'password' in body_text:
+        body_masked = body_text.replace('password', 'pwd')
+    else:
+        body_masked = body_text
+    rec_start.body_excerpt = body_masked[:120]
+    logger.handle(rec_start)
     response = await call_next(request)
-    logger.info(f"END {request.method} {request.url.path} status={response.status_code}")
+    duration_ms = int((time.time() - start) * 1000)
+    level = logging.ERROR if hasattr(response, 'status_code') and response.status_code >= 400 else logging.INFO
+    rec_end = logging.LogRecord(name=logger.name, level=level, pathname=__file__, lineno=0, msg="request.end", args=(), exc_info=None)
+    rec_end.request_id = request_id
+    rec_end.path = request.url.path
+    rec_end.method = request.method
+    rec_end.status_code = response.status_code
+    # Map common codes to phrases; fallback generic
+    status_map = {
+        200: "OK", 201: "Created", 204: "No Content",
+        400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found",
+        422: "Unprocessable Entity", 500: "Internal Server Error"
+    }
+    rec_end.status_text = status_map.get(response.status_code, "")
+    rec_end.duration_ms = duration_ms
+    # Add user context if token available
+    username = None
+    role = None
+    auth_header = request.headers.get('authorization')
+    if auth_header and auth_header.lower().startswith('bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get('sub')
+            role = payload.get('role')
+        except Exception:
+            pass
+    rec_end.username = username
+    rec_end.role = role
+    rec_end.client_ip = rec_start.client_ip
+    rec_end.user_agent = rec_start.user_agent
+    rec_end.request_size = rec_start.request_size
+    rec_end.body_excerpt = rec_start.body_excerpt
+    logger.handle(rec_end)
     return response
 
 def verify_password(plain, hashed):
@@ -214,6 +302,11 @@ def delete_policy(policy_id: int, user: dict = Depends(get_current_admin), db: S
     db.delete(row)
     db.commit()
     return {"detail": "Deleted"}
+
+@app.get("/debug/error500")
+def trigger_error():
+    """Debug endpoint to test 500 error handling and logging"""
+    raise Exception("Intentional server error for testing")
 
 # --- API Docs ---
 # FastAPI provides Swagger UI at /docs and OpenAPI at /openapi.json

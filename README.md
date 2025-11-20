@@ -224,6 +224,17 @@ Tests cover:
 - User policy CRUD limits (403 on delete).
 - Admin patch & delete flow.
 
+### Verbose Test Mode & Request Summary
+Pytest is configured (see `pytest.ini`) to emit live logs for each request with `request.start` / `request.end`. Error HTTP status codes (>=400) appear at ERROR level. At session end a summary line is printed:
+```
+[request summary] total=<count> errors=<error_count> avg_duration_ms=<avg>
+```
+Run verbosely:
+```bash
+pytest
+```
+Log format in file (`backend/logs/app.log`) is structured JSON with keys: ts, level, request_id, path, method, status_code, duration_ms.
+
 To add more tests create files under `backend/tests/` using `TestClient`.
 
 ## Using Separate Production DB

@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: insurance
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
   backend:
@@ -20,7 +20,7 @@ services:
     depends_on:
       - db
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
   frontend:
     build:
       context: .
@@ -31,6 +31,6 @@ services:
       REACT_APP_API_URL: http://localhost:8000
       PORT: 3023
     ports:
-      - "3023:3023"
+      - "${FRONTEND_PORT:-3023}:3023"
 volumes:
   db_data:
