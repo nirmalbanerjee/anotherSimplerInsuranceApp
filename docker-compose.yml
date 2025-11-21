@@ -10,6 +10,7 @@ services:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
   backend:
     build:
       context: .
@@ -17,8 +18,11 @@ services:
     environment:
       DB_URL: postgresql://postgres:postgres@db:5432/insurance
       SECRET_KEY: supersecretkey
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      SERVICE_NAME: insurance-api
     depends_on:
       - db
+      - jaeger
     ports:
       - "${BACKEND_PORT:-8000}:8000"
   frontend:
@@ -32,5 +36,48 @@ services:
       PORT: 3023
     ports:
       - "${FRONTEND_PORT:-3023}:3023"
+  
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
+  
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+  
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3001:3000"  # Changed to 3001 to avoid conflict with frontend on 3000
+    depends_on:
+      - prometheus
+      - jaeger
+
 volumes:
   db_data:
+  prometheus_data:
+  grafana_data:

@@ -12,9 +12,18 @@ from sqlalchemy.orm import Session
 import datetime
 import os, sys, logging, json, uuid, time
 from logging.handlers import RotatingFileHandler
+from opentelemetry import trace
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  # add project root to path
 from db.database import engine, Base, get_db  # noqa: E402
 from db.models import UserORM, PolicyORM  # noqa: E402
+try:
+    from backend.telemetry import (
+        instrument_app, get_metrics_endpoint, record_auth_event,
+        record_policy_operation, record_http_request
+    )
+    TELEMETRY_ENABLED = True
+except ImportError:
+    TELEMETRY_ENABLED = False
 
 # --- Config ---
 SECRET_KEY = "supersecretkey"
@@ -27,7 +36,7 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 class User(BaseModel):
     username: str
     password: str
-    role: str
+    role: str = "user"
 
 class InsurancePolicy(BaseModel):
     id: Optional[int]
@@ -61,6 +70,11 @@ Base.metadata.create_all(bind=engine)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 app = FastAPI(title="Insurance API", description="Simple insurance CRUD app", version="1.0.0")
+
+# --- OpenTelemetry Instrumentation ---
+if TELEMETRY_ENABLED:
+    instrument_app(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -173,6 +187,10 @@ async def log_requests(request, call_next):
     rec_end.request_size = rec_start.request_size
     rec_end.body_excerpt = rec_start.body_excerpt
     logger.handle(rec_end)
+    # Record Prometheus metrics if enabled
+    if TELEMETRY_ENABLED:
+        duration_sec = (time.time() - start)
+        record_http_request(request.method, request.url.path, response.status_code, duration_sec)
     return response
 
 def verify_password(plain, hashed):
@@ -225,13 +243,29 @@ async def get_current_admin(user: dict = Depends(get_current_user)):
     return user
 
 # --- Routes ---
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "insurance-api"}
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint"""
+    if TELEMETRY_ENABLED:
+        return get_metrics_endpoint()()
+    return {"error": "Telemetry not enabled"}
+
 @app.post("/register", response_model=Token)
 def register(user: User, db: Session = Depends(get_db)):
     if get_user(user.username, db):
+        if TELEMETRY_ENABLED:
+            record_auth_event("register_failed", user.role)
         raise HTTPException(status_code=400, detail="Username already exists")
     hashed = get_password_hash(user.password)
     db.add(UserORM(username=user.username, password=hashed, role=user.role))
     db.commit()
+    if TELEMETRY_ENABLED:
+        record_auth_event("register_success", user.role)
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -239,7 +273,11 @@ def register(user: User, db: Session = Depends(get_db)):
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
+        if TELEMETRY_ENABLED:
+            record_auth_event("login_failed", "unknown")
         raise HTTPException(status_code=400, detail="Incorrect username or password")
+    if TELEMETRY_ENABLED:
+        record_auth_event("login_success", user["role"])
     access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -247,12 +285,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 def login_json(body: LoginBody, db: Session = Depends(get_db)):
     user = authenticate_user(body.username, body.password, db)
     if not user:
+        if TELEMETRY_ENABLED:
+            record_auth_event("login_failed", "unknown")
         raise HTTPException(status_code=400, detail="Incorrect username or password")
+    if TELEMETRY_ENABLED:
+        record_auth_event("login_success", user["role"])
     access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/policies", response_model=List[InsurancePolicy])
 def get_policies(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if TELEMETRY_ENABLED:
+        record_policy_operation("list", user["role"])
     q = db.query(PolicyORM)
     if user["role"] != "admin":
         q = q.filter(PolicyORM.owner==user["username"])
@@ -261,7 +305,19 @@ def get_policies(user: dict = Depends(get_current_user), db: Session = Depends(g
 
 @app.post("/policies", response_model=InsurancePolicy)
 def create_policy(policy: InsurancePolicyCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = PolicyORM(name=policy.name, details=policy.details, owner=user["username"])
+    if TELEMETRY_ENABLED:
+        record_policy_operation("create", user["role"])
+    # Get the user's database ID
+    user_obj = db.query(UserORM).filter(UserORM.username == user["username"]).first()
+    if not user_obj:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    row = PolicyORM(
+        name=policy.name, 
+        details=policy.details, 
+        owner=user["username"],
+        user_id=user_obj.id
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -269,6 +325,8 @@ def create_policy(policy: InsurancePolicyCreate, user: dict = Depends(get_curren
 
 @app.put("/policies/{policy_id}", response_model=InsurancePolicy)
 def update_policy(policy_id: int, policy: InsurancePolicy, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    if TELEMETRY_ENABLED:
+        record_policy_operation("update", user["role"])
     row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
@@ -281,6 +339,8 @@ def update_policy(policy_id: int, policy: InsurancePolicy, user: dict = Depends(
 
 @app.patch("/policies/{policy_id}", response_model=InsurancePolicy)
 def patch_policy(policy_id: int, patch: InsurancePolicyUpdate, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    if TELEMETRY_ENABLED:
+        record_policy_operation("patch", user["role"])
     row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
@@ -296,6 +356,8 @@ def patch_policy(policy_id: int, patch: InsurancePolicyUpdate, user: dict = Depe
 
 @app.delete("/policies/{policy_id}")
 def delete_policy(policy_id: int, user: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+    if TELEMETRY_ENABLED:
+        record_policy_operation("delete", user["role"])
     row = db.query(PolicyORM).filter(PolicyORM.id==policy_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")

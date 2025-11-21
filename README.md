@@ -1,5 +1,13 @@
 # Insurance App API Documentation
 
+## Quick Links
+- **API Docs**: http://localhost:8000/docs
+- **Health**: http://localhost:8000/health
+- **Metrics**: http://localhost:8000/metrics
+- **Jaeger Tracing**: http://localhost:16686
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3001 (admin/admin)
+
 ## Base URL
 Local development base: `http://localhost:8000`
 Swagger UI: `http://localhost:8000/docs`
@@ -12,6 +20,8 @@ Include header: `Authorization: Bearer <token>` for protected endpoints.
 ## Endpoints Summary
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| GET | /health | No | Health check endpoint |
+| GET | /metrics | No | Prometheus metrics |
 | POST | /register | No | Register new user (role: user/admin) |
 | POST | /login-json | No | Login via JSON body |
 | POST | /login | No | Login via form-encoded (OAuth2PasswordRequestForm) |
@@ -20,6 +30,7 @@ Include header: `Authorization: Bearer <token>` for protected endpoints.
 | PUT | /policies/{id} | Admin | Full replace (name, details, owner) |
 | PATCH | /policies/{id} | Admin | Partial update (any subset of name, details, owner) |
 | DELETE | /policies/{id} | Admin | Delete policy |
+| GET | /debug/error500 | No | Test endpoint for 500 errors |
 
 ## Detailed Endpoint Specs
 ### 1. Register
@@ -139,22 +150,39 @@ Detailed guides:
 - AWS deployment: `README.aws.md`
 
 ## Containerized Deployment (Docker Compose)
-Ports:
-- Frontend: 3000
+Services & Ports:
+- Frontend: 3023
 - Backend API: 8000
 - Postgres DB: 5432
+- **Jaeger UI**: 16686
+- **Prometheus**: 9090
+- **Grafana**: 3001 (changed from 3000 to avoid conflict)
 
-### Run Locally with Docker Compose (Ports: frontend 3023, backend 8000, db 5432)
+### Run Full Stack with Observability:
 ```bash
 docker compose build
 docker compose up -d
-# Frontend: http://localhost:3000
-# Backend Swagger: http://localhost:8000/docs
+
+# Access services:
+# Frontend: http://localhost:3023
+# Backend API: http://localhost:8000/docs
+# Jaeger Traces: http://localhost:16686
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3001 (admin/admin)
 ```
+
 Stop:
 ```bash
 docker compose down
 ```
+
+### Telemetry & Observability
+See **`TELEMETRY.md`** for comprehensive observability documentation including:
+- Distributed tracing with Jaeger
+- Metrics with Prometheus & Grafana
+- Structured logging with trace correlation
+- Custom business metrics (auth events, policy operations)
+- Example Prometheus queries
 
 ### Environment Variables
 See `.env.example` and set `DB_URL`, `SECRET_KEY` as needed.

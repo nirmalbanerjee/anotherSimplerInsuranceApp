@@ -8,3 +8,11 @@ sqlalchemy
 psycopg2-binary
 pytest
 httpx
+# OpenTelemetry
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlalchemy
+opentelemetry-exporter-otlp
+# Prometheus
+prometheus-client
