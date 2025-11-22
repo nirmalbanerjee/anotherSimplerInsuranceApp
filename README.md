@@ -130,7 +130,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/policies
 - 401: Missing/invalid token.
 - 403: Insufficient role (need admin).
 - 422: Validation error (missing required fields).
-- Reset database: delete `backend/app.db` then restart server.
+- Reset database: delete `app.db` then restart server.
 
 ## Run
 Backend:

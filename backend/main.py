@@ -13,6 +13,9 @@ import datetime
 import os, sys, logging, json, uuid, time
 from logging.handlers import RotatingFileHandler
 from opentelemetry import trace
+# Import Prometheus process collectors for CPU/Memory metrics
+from prometheus_client import CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import ProcessCollector, GCCollector
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  # add project root to path
 from db.database import engine, Base, get_db  # noqa: E402
 from db.models import UserORM, PolicyORM  # noqa: E402
@@ -307,16 +310,11 @@ def get_policies(user: dict = Depends(get_current_user), db: Session = Depends(g
 def create_policy(policy: InsurancePolicyCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if TELEMETRY_ENABLED:
         record_policy_operation("create", user["role"])
-    # Get the user's database ID
-    user_obj = db.query(UserORM).filter(UserORM.username == user["username"]).first()
-    if not user_obj:
-        raise HTTPException(status_code=404, detail="User not found")
     
     row = PolicyORM(
         name=policy.name, 
         details=policy.details, 
-        owner=user["username"],
-        user_id=user_obj.id
+        owner=user["username"]
     )
     db.add(row)
     db.commit()

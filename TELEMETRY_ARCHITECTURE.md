@@ -6,16 +6,16 @@ The application uses a **split observability architecture**:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Backend Application                   │
-│                                                          │
-│  ┌──────────────────┐      ┌──────────────────┐        │
-│  │  OpenTelemetry   │      │   Prometheus     │        │
-│  │   Instrumentation│      │   Metrics        │        │
-│  └────────┬─────────┘      └─────────┬────────┘        │
+│                    Backend Application                  │
+│                                                         │
+│  ┌──────────────────┐        ┌──────────────────┐       │
+│  │  OpenTelemetry   │        │   Prometheus     │       │
+│  │   Instrumentation│        │   Metrics        │       │
+│  └────────┬─────────┘        └─────────┬────────┘       │
 └───────────┼────────────────────────────┼────────────────┘
             │                            │
-            │ OTLP/gRPC                 │ HTTP /metrics
-            │ (Traces only)             │ (Scrape)
+            │ OTLP/gRPC                  │ HTTP /metrics
+            │ (Traces only)              │ (Scrape)
             ▼                            ▼
    ┌────────────────┐          ┌────────────────┐
    │     Jaeger     │          │   Prometheus   │

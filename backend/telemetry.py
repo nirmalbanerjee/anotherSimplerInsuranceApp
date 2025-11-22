@@ -9,8 +9,10 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
 from fastapi import Response
+import psutil
+import os as system_os
 
 # Service name for traces
 SERVICE_NAME = os.getenv("SERVICE_NAME", "insurance-api")
@@ -22,6 +24,9 @@ trace_provider = TracerProvider(resource=resource)
 otlp_span_exporter = OTLPSpanExporter(endpoint=OTEL_EXPORTER_OTLP_ENDPOINT, insecure=True)
 trace_provider.add_span_processor(BatchSpanProcessor(otlp_span_exporter))
 trace.set_tracer_provider(trace_provider)
+
+# Note: ProcessCollector and GCCollector are automatically registered by prometheus_client
+# No need to explicitly register them again
 
 # Note: Metrics are handled by Prometheus only (not OTLP)
 # Jaeger does not support OTLP metrics, only traces
@@ -48,6 +53,30 @@ prom_policy_operations = Counter(
     ['operation', 'user_role']
 )
 
+# Application-level resource metrics
+app_memory_bytes = Gauge(
+    'app_memory_usage_bytes',
+    'Application memory usage in bytes'
+)
+app_cpu_percent = Gauge(
+    'app_cpu_usage_percent',
+    'Application CPU usage percentage'
+)
+app_open_files = Gauge(
+    'app_open_files_count',
+    'Number of open file descriptors'
+)
+
+def update_resource_metrics():
+    """Update application resource metrics"""
+    try:
+        process = psutil.Process(system_os.getpid())
+        app_memory_bytes.set(process.memory_info().rss)
+        app_cpu_percent.set(process.cpu_percent(interval=None))
+        app_open_files.set(process.num_fds() if hasattr(process, 'num_fds') else len(process.open_files()))
+    except Exception:
+        pass  # Ignore errors in metrics collection
+
 def instrument_app(app):
     """Auto-instrument FastAPI and SQLAlchemy"""
     FastAPIInstrumentor.instrument_app(app)
@@ -57,6 +86,7 @@ def instrument_app(app):
 def get_metrics_endpoint():
     """Returns Prometheus metrics endpoint handler"""
     def metrics():
+        update_resource_metrics()  # Update app-level metrics before serving
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
     return metrics
 

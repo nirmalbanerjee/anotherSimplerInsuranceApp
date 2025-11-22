@@ -1,0 +1,262 @@
+{
+  "dashboard": {
+    "title": "Insurance App - Resource Monitoring",
+    "tags": ["docker", "resources", "database"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Docker Container CPU Usage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{id=~\"/docker/[^/]+\"}[5m]) * 100",
+            "legendFormat": "{{id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Docker Container Memory Usage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "container_memory_usage_bytes{id=~\"/docker/[^/]+\"} / 1024 / 1024",
+            "legendFormat": "{{id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Backend App CPU Usage",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "app_cpu_usage_percent",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 50, "color": "yellow" },
+                { "value": 80, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Backend App Memory Usage",
+        "type": "gauge",
+        "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 },
+        "targets": [
+          {
+            "expr": "app_memory_usage_bytes / 1024 / 1024",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 256, "color": "yellow" },
+                { "value": 512, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Database Connections",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 6, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "pg_stat_database_numbackends{datname=\"insurance\"}",
+            "legendFormat": "Active Connections",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Database Transaction Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 6, "x": 18, "y": 8 },
+        "targets": [
+          {
+            "expr": "rate(pg_stat_database_xact_commit{datname=\"insurance\"}[5m])",
+            "legendFormat": "Commits/s",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(pg_stat_database_xact_rollback{datname=\"insurance\"}[5m])",
+            "legendFormat": "Rollbacks/s",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Network I/O",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+        "targets": [
+          {
+            "expr": "rate(container_network_receive_bytes_total{id=~\"/docker/[^/]+\"}[5m]) / 1024",
+            "legendFormat": "{{id}} - RX",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(container_network_transmit_bytes_total{id=~\"/docker/[^/]+\"}[5m]) / 1024",
+            "legendFormat": "{{id}} - TX",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "KBs",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Disk I/O",
+        "type": "timeseries",
+        "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+        "targets": [
+          {
+            "expr": "rate(container_fs_reads_bytes_total{id=~\"/docker/[^/]+\"}[5m]) / 1024",
+            "legendFormat": "{{id}} - Read",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(container_fs_writes_bytes_total{id=~\"/docker/[^/]+\"}[5m]) / 1024",
+            "legendFormat": "{{id}} - Write",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "KBs",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Python GC Collections",
+        "type": "timeseries",
+        "gridPos": { "h": 6, "w": 8, "x": 0, "y": 21 },
+        "targets": [
+          {
+            "expr": "rate(python_gc_collections_total[5m])",
+            "legendFormat": "Gen {{generation}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "color": { "mode": "palette-classic" }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Open File Descriptors",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 8, "x": 8, "y": 21 },
+        "targets": [
+          {
+            "expr": "app_open_files_count",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 100, "color": "yellow" },
+                { "value": 500, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Database Size",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 8, "x": 16, "y": 21 },
+        "targets": [
+          {
+            "expr": "pg_database_size_bytes{datname=\"insurance\"} / 1024 / 1024",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 100, "color": "yellow" },
+                { "value": 500, "color": "red" }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "refresh": "10s",
+    "time": { "from": "now-15m", "to": "now" },
+    "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"] }
+  }
+}
